@@ -1,0 +1,267 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse, verbose = F)
+source("Funciones.R")
+```
+
+# Lectura de Datos
+
+Lo datos corresponde a una matriz 5x5x10. La metadata será X = 1...25 y Z = 1...10 (profundidad), ambos detectores tienen la misma metadata.
+
+```{r}
+##Metadata
+Metadata <- data.frame(x = rep(1:100, each = 11), 
+                       z = rep(1:11, 100))
+
+Comp.data <- data.frame(muestra = c("ss406", "ss407", "ss408", "ss409", "ss410"), 
+                        C = c(0.19,0.50,0.28,0.11,0.39),
+                        Mn = c(0.53,0.13,0.64,0.48,0.43),
+                        Ni = c(1.69,0.61,4.58,3.14,2.04),
+                        Cr = c(2.12,3.00,0.09,1.22,1.72),
+                        Mo = c(1.03,0.82,0.14,0.77,0.41),
+                        Cu = c(0.32,0.43,0.73,0.23,0.47))
+```
+
+# DEMON
+
+```{r}
+data.dir <- "Data/demon/"
+
+## DEMON data
+L_Demon <- map(c("ss406.asc","ss407.asc","ss408.asc","ss409.asc","ss410.asc"), 
+               ~ read_tsv(paste(data.dir,.x,sep = ""), col_names = F, progress = F, show_col_types = F)) 
+
+L_Demon <- L_Demon %>% set_names(c("ss406","ss407","ss408","ss409","ss410"))  
+
+L_Demon <- L_Demon %>% map(~ .x %>% setNames(c("wl",paste("X", 1:(ncol(.x)-1), sep = ""))))
+
+## elimina shot 1
+L_Demon <- L_Demon %>% 
+  map(~ .x %>% .[, c(1, which(Metadata$z != 1) + 1)]) ## elimina disparo #1 (limpieza)
+
+g <- L_Demon %>% map(~ data.frame(.x[,1], Int = apply(.x[,2:ncol(.x)], 1, mean))) %>% bind_rows(.id = "id") %>% 
+  ggplot(aes(x = wl, y = Int, color = id)) + geom_line() + labs(x = "Wavelength")
+g %>% plotly::ggplotly()
+```
+
+```{r}
+## Normalizar
+izq <- 267.70
+der <- 267.75
+int <- L_Demon %>% map_dfr(fun.int, izq = izq, der = der)
+factor <-  1
+int_norm <- int/factor
+
+## acumular
+int_norm <- sumar_filas_por_grupos(int_norm, n = 10, wl = F)
+
+## Promediar
+int_norm <- cbind(Comp.data, int_norm)
+int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>%
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+    geom_point() + 
+    geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+
+int_mean <- apply(int_norm %>% select(X1:X100), 1, promediar_grupos_aleatorios, n=10) %>% t() %>% data.frame()
+int_mean <- cbind(Comp.data, int_mean)
+int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+    geom_point() + 
+    geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+
+int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+    geom_boxplot() + 
+    geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+
+```
+# MECHELLE
+
+```{r}
+data.dir <- "Data/mechelle/"
+## Mechelle data
+L_Mechelle <- map(c("ss406.asc","ss407.asc","ss408.asc","ss409.asc","ss410.asc"), 
+                  ~ read_tsv(paste(data.dir,.x,sep = ""), col_names = F, progress = F, show_col_types = F)) 
+
+L_Mechelle <- L_Mechelle %>% map(~ .x %>% setNames(c("wl",paste("X", 1:(ncol(.x)-1), sep = ""))))
+L_Mechelle <- L_Mechelle %>% set_names(c("ss406","ss407","ss408","ss409","ss410"))  
+```
+
+## Exploracion Cromo
+
+```{r}
+## elimina shot 1
+L_Mechelle <- L_Mechelle %>% 
+  map(~ .x %>% .[, c(1, which(Metadata$z != 1) + 1)]) ## elimina disparo #1 (limpieza)
+
+g <- L_Mechelle %>% map(~ data.frame(.x[,1], Int = apply(.x[,2:ncol(.x)], 1, mean))) %>% bind_rows(.id = "id") %>% 
+  ggplot(aes(x = wl, y = Int, color = id)) + geom_line() + labs(x = "Wavelength")
+g %>% plotly::ggplotly()
+```
+## Wavelength Calibration
+
+```{r}
+L_Mechelle_new <- L_Mechelle %>% 
+    map(~ fun.WL.calibration(old = .x, ref = 438.3275))
+
+
+g <- L_Mechelle %>% map(~ data.frame(.x[,1], Int = apply(.x[,2:ncol(.x)], 1, mean))) %>% bind_rows(.id = "id") %>% 
+  ggplot(aes(x = wl, y = Int, color = id)) + geom_line() + labs(x = "Wavelength")
+g %>% plotly::ggplotly()
+```
+
+
+
+
+### Normalizando por suma total 200-1000
+
+Acumular (z) - Normalizar - Promediar (x)
+
+```{r}
+## acumular
+L <- L_Mechelle %>% map(~ .x %>% sumar_filas_por_grupos(n = 10))
+  
+## Normalizar
+# izq <- 267.6567
+# der <- 267.8053
+#int <- L %>% map_dfr(fun.int, izq = izq, der = der)
+int <- L %>% map_dfr(fun.int2, centro)
+factor <- L %>% map_dfr(fun.int, izq = 200, der = 1030)
+int_norm <- int/factor
+
+## Promediar
+int_norm <- cbind(Comp.data, int_norm)
+int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>% ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_boxplot()
+```
+
+Normalizar - Acumular (z) - promediar (x)
+
+```{r}
+## Normalizar
+izq <- 267.6567
+der <- 267.8053
+int <- L_Mechelle %>% map_dfr(fun.int, izq = izq, der = der)
+factor <- L_Mechelle %>% map_dfr(fun.int, izq = 200, der = 1030)
+int_norm <- int/factor
+
+## acumular
+int_norm <- sumar_filas_por_grupos(int_norm, n = 10, wl = F)
+  
+## Promediar
+int_norm <- cbind(Comp.data, int_norm)
+int_norm %>% pivot_longer(X1:X25, values_to = "Libs.Int") %>% ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_boxplot()
+```
+### Normalizando por suma total 200-600
+
+Acumular (z) - Normalizar - Promediar (x)
+
+```{r}
+## acumular
+L <- L_Mechelle %>% map(~ .x %>% sumar_filas_por_grupos(n = 10, wl = T))
+  
+## Normalizar
+izq <- 267.6567
+der <- 267.8053
+int <- L %>% map_dfr(fun.int, izq = izq, der = der)
+factor <- L %>% map_dfr(fun.int, izq = 200, der = 600)
+int_norm <- int/factor
+
+## Promediar
+int_norm <- cbind(Comp.data, int_norm)
+int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_boxplot() + geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+
+int_mean <- apply(int_norm %>% select(X1:X100), 1, promediar_grupos_aleatorios, n=5) %>% data.frame()
+int_mean <- cbind(Comp.data, int_mean)
+int_norm %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_boxplot() + geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+```
+Normalizar - Acumular (z) - promediar (x)
+
+```{r}
+## Normalizar
+izq <- 267.6567
+der <- 267.8053
+int <- L_Mechelle %>% map_dfr(fun.int, izq = izq, der = der)
+factor <- L_Mechelle %>% map_dfr(fun.int, izq = 200, der = 600)
+int_norm <- int/factor
+
+## acumular
+int_norm <- sumar_filas_por_grupos(int_norm, n = 10, wl = F)
+
+## Promediar
+int_norm <- cbind(Comp.data, int_norm)
+int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>%
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_point() + geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+
+int_mean <- apply(int_norm %>% select(X1:X100), 1, promediar_grupos_aleatorios, n=5) %>% data.frame()
+int_mean <- cbind(Comp.data, int_mean)
+int_norm %>% pivot_longer(X1:X5, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_point() + geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+```
+```{r}
+## Normalizar
+izq <- 283.49
+der <- 283.65
+int <- L_Mechelle %>% map_dfr(fun.int, izq = izq, der = der)
+factor <- L_Mechelle %>% map_dfr(fun.int, izq = 200, der = 600)
+int_norm <- int/factor
+
+## acumular
+int_norm <- sumar_filas_por_grupos(int_norm, n = 10, wl = F)
+
+## Promediar
+int_norm <- cbind(Comp.data, int_norm)
+int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>%
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_point() + geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray") 
+
+int_mean <- apply(int_norm %>% select(X1:X100), 1, promediar_grupos_aleatorios, n = 5) %>% data.frame()
+int_mean <- cbind(Comp.data, int_mean)
+int_mean %>% pivot_longer(X1:X5, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_point() + geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+```
+
+## Exploracion Aire - Argon
+
+```{r}
+data.dir <- "Data/exp1/"
+## Mechelle data Aire
+L_Aire <- map(c("ss407_NoBL.asc","ss408_NoBL.asc"), 
+                  ~ read_csv(paste(data.dir,.x,sep = ""), col_names = F, progress = F, show_col_types = F)) %>% 
+  set_names(c("ss407_Aire","ss408_Aire"))
+
+data.dir <- "Data/exp2/"
+L_Argon <- map(c("ss407_Ar_NoBL.asc","ss408_Ar_NoBL.asc"), 
+                  ~ read_csv(paste(data.dir,.x,sep = ""), col_names = F, progress = F, show_col_types = F)) %>% 
+  set_names(c("ss407_Ar","ss408_Ar"))
+
+L_Mechelle <- c(L_Aire, L_Argon) %>% map(~ .x %>% setNames(c("wl",paste("X", 1:(ncol(.x)-1), sep = ""))))
+
+## Normalizar
+izq <- 267.6567
+der <- 267.8053
+int <- L_Mechelle %>% map_dfr(fun.int, izq = izq, der = der)
+factor <- L_Mechelle %>% map_dfr(fun.int, izq = 200, der = 600)
+int_norm <- int/factor
+
+## acumular
+int_norm <- sumar_filas_por_grupos(int_norm, n = 25, wl = F)
+
+## Promediar
+metdata <- data.frame(muestra = c("ss407_Aire", "ss408_Aire", "ss407_Ar", "ss408_Ar")) %>% mutate(rbind(Comp.data[2:3,2:ncol(Comp.data)],Comp.data[2:3,2:ncol(Comp.data)]) )
+
+int_norm <- cbind(metdata, int_norm)
+int_norm %>% pivot_longer(X1:X25, values_to = "Libs.Int") %>%
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_point() + geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+
+int_mean <- apply(int_norm %>% select(X1:X25), 1, promediar_grupos_aleatorios, n=5) %>% data.frame()
+int_mean <- cbind(Comp.data, int_mean)
+int_norm %>% pivot_longer(X1:X5, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_point() + geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+```
+
+
