@@ -68,31 +68,37 @@ promediar_grupos_aleatorios <- function(vector, n) {
   return(promedios)
 }
 
-fun.WL.calibration <-  function(old, ref){
+fun.WL.calibration <-  function(old, p){
     ## ref debe ser una longitud de onda que tenga 10 posiciones limpias a cada lado
     ## 
     ## funcion de correccion
+    old <- old %>% set_names("wl",paste("X",1:1000, sep = ""))
     old$wl <- round(old$wl,4)
+    base <- data.frame(wl = old$wl) %>% rowid_to_column()
+    #p <- which(old$wl == ref) # posicion de la longitud de onda de referencia
+    old <- old %>% rowid_to_column() %>% dplyr::select(rowid, X1:X1000)
     new <- list()
+    
     for (i in 1:(ncol(old)-1)) {
         
-        df <- data.frame(old[,c(1,i+1)]) # wl,Xn
-        p <- which(df$wl == ref)
-        window <- df[(p-5):(p+5),]
-        max_wl <- window[which(window[,2] == max(window[,2])),1]
+        df <- old[,c(1,(i+1))]
+        window <- df[(p-10):(p+10),]
+        max_p <- window$rowid[which(window[,2] == max(window[,2]))]
         
-        if(max_wl != ref){
-            delta <- ref - max_wl
-            if(delta < 0){
-                df$wl <- df$wl + delta
-            }else{
-                df$wl <- df$wl - delta
-            }
+        if(max_p != p){
+            # delta <- p - max_p
+            df$rowid <- df$rowid + (p - max_p)
+            # if(delta < 0){
+            #     df$rowid <- df$rowid + delta
+            # }else{
+            #     df$rowid <- df$rowid - delta
+            # }
         }
         
         new[[i]] <- df
     }
-    new
+    new <- Reduce(function(x, y) merge(x, y, by = "rowid", all = TRUE), new)
+    merge(base, new, by = "rowid", all = TRUE)
 }
 
 # ref <- 145 # wl de pico
