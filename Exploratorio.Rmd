@@ -18,17 +18,21 @@ Metadata <- data.frame(x = rep(1:100, each = 11),
                        z = rep(1:11, 100))
 
 Comp.data <- data.frame(muestra = c("ss406", "ss407", "ss408", "ss409", "ss410"), 
-                        C = c(0.19,0.50,0.28,0.11,0.39),
-                        Mn = c(0.53,0.13,0.64,0.48,0.43),
-                        Ni = c(1.69,0.61,4.58,3.14,2.04),
-                        Cr = c(2.12,3.00,0.09,1.22,1.72),
-                        Mo = c(1.03,0.82,0.14,0.77,0.41),
-                        Cu = c(0.32,0.43,0.73,0.23,0.47))
+                        C = c(0.19, 0.50, 0.28, 0.11, 0.39),
+                        Si = c(0.38, 0.69, 0.24, 1.07, 1.00),
+                        S = c(0.049, 0.012, 0.030, 0.015, 0.053),
+                        P = c(0.014, 0.033, 0.043, 0.025, 0.066),
+                        Mn = c(0.53, 0.13, 0.64, 0.48, 0.43),
+                        Ni = c(1.69, 0.61, 4.58, 3.14, 2.04),
+                        Cr = c(2.12, 3.00, 0.09, 1.22, 1.72),
+                        Mo = c(1.03, 0.82, 0.14, 0.77, 0.41),
+                        V = c(0.020, 0.23, 0.063, 0.028, 0.46),
+                        Cu = c(0.32, 0.43, 0.73, 0.23, 0.47))
 ```
 
 # DEMON
 
-```{r}
+```{r, message=FALSE}
 data.dir <- "Data/demon/"
 
 wl <- read_tsv(paste(data.dir,"ss406.asc",sep = ""), col_names = F, progress = F, show_col_types = F) %>% 
@@ -82,6 +86,7 @@ int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>%
     geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
 
 ```
+
 # MECHELLE
 
 ```{r}
@@ -94,7 +99,7 @@ L_Mechelle <- L_Mechelle %>% map(~ .x %>% setNames(c("wl",paste("X", 1:(ncol(.x)
 L_Mechelle <- L_Mechelle %>% set_names(c("ss406","ss407","ss408","ss409","ss410"))  
 ```
 
-## Exploracion Cromo
+## Exploracion Manual (Cromo)
 
 ```{r}
 ## elimina shot 1
@@ -105,7 +110,10 @@ g <- L_Mechelle %>% map(~ data.frame(.x[,1], Int = apply(.x[,2:ncol(.x)], 1, mea
   ggplot(aes(x = wl, y = Int, color = id)) + geom_line() + labs(x = "Wavelength")
 g %>% plotly::ggplotly()
 ```
-## Wavelength Calibration
+
+El spectrometer tiene un gran problema de calibracion. Los espectros se desplazan en longitud de onda. En el siguiente apartado implemento una funcion para recalibrar el espectro tomando como referencia una linea de la matriz (en este caso Fe 438.32).
+
+### Wavelength Re-Calibration
 
 ```{r}
 ref <- 438.3275
@@ -118,35 +126,41 @@ L_Mechelle_new <- L_Mechelle %>%
 
 L_Mechelle_new <- L_Mechelle_new %>% 
                     map(~ .x %>% drop_na() %>% filter(between(rowid, 1, 26818)) %>% select(!rowid))
+```
 
-
+```{r}
 g <- L_Mechelle_new %>% purrr::map(~ data.frame(wl = .x[,1], Int = apply(.x[,2:ncol(.x)], 1, mean))) %>% 
             bind_rows(.id = "id") %>% 
        ggplot(aes(x = wl, y = Int, color = id)) + geom_line() + labs(x = "Wavelength")
  
 g %>% plotly::ggplotly()
 ```
-### Normalizando por suma total 200-1000
 
-Acumular (z) - Normalizar - Promediar (x)
+### Normalizacion: Estandar interno
+
+#### ¿Como tratar los datos? - ¿Que es una observacion?
+
+-   **Metodo 1: Acumular (z) - Normalizar - Promediar (x)**
 
 ```{r}
 ## acumular
 L <- L_Mechelle_new %>% map(~ .x %>% sumar_filas_por_grupos(n = 10))
   
 ## Normalizar
-int <- L %>% map_dfr(fun.int, izq = 267.64, der = 267.74)
-factor <- L %>% map_dfr(fun.int, izq = 268.40, der = 268.50)
+int <- L %>% map_dfr(fun.int, izq = 267.64, der = 267.74)       ## Cromo
+factor <- L %>% map_dfr(fun.int, izq = 268.40, der = 268.50)    ## Fe
 int_norm <- int/factor
 
 ## Promediar
 int_norm <- cbind(Comp.data, int_norm)
-int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>% 
-    ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
-        geom_point()
 
 int_mean <- apply(int_norm %>% select(X1:X100), 1, promediar_grupos_aleatorios, n=10) %>% t() %>% data.frame()
 int_mean <- cbind(Comp.data, int_mean)
+
+## graficar
+int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>% 
+    ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+        geom_point()
 
 int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
   ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
@@ -155,61 +169,115 @@ int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>%
 
 int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
   ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
-    geom_boxplot() + 
+    geom_violin() + 
     geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
 ```
 
-Normalizar - Acumular (z) - promediar (x)
+-   **Metodo 2: Normalizar - Acumular (z) - promediar (x)**
 
 ```{r}
-## Normalizar
+## Normalizar: por espectro
 int <- L_Mechelle_new %>% map_dfr(fun.int, izq = 267.64, der = 267.74)
 factor <- L_Mechelle_new %>% map_dfr(fun.int, izq = 268.40, der = 268.50)
 int_norm <- int/factor
 
-## acumular
+## acumular: en Z
+int_norm <- sumar_filas_por_grupos(int_norm, n = 10, wl = F)
+
+## Promediar: en X
+int_mean <- apply(int_norm, 1, promediar_grupos_aleatorios, n=10) %>% t() %>% data.frame()
+int_mean <- cbind(Comp.data, int_mean)
+int_norm <- cbind(Comp.data, int_norm)
+
+## graficar
+int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>% 
+    ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+        geom_point()
+
+int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+    geom_point() + 
+    geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+
+int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+    geom_violin() + 
+    geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+```
+
+*Nota:* En adelante una observacion sera el resultado de aplicar Metodo 1.
+
+### Normalizacion: suma total
+
+Acumular (z) - Normalizar - Promediar (x)
+
+```{r}
+## Acumular
 L <- L_Mechelle_new %>% map(~ .x %>% sumar_filas_por_grupos(n = 10))
+  
+## Normalizar
+int <- L %>% map_dfr(fun.int, izq = 267.64, der = 267.74)       ## Cromo
+factor <- L %>% map_dfr(fun.int, izq = 230, der = 1000)    ## Fe
+int_norm <- int/factor
 
 ## Promediar
 int_norm <- cbind(Comp.data, int_norm)
-int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>% ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_boxplot()
+
+int_mean <- apply(int_norm %>% select(X1:X100), 1, promediar_grupos_aleatorios, n=10) %>% t() %>% data.frame()
+int_mean <- cbind(Comp.data, int_mean)
+
+## graficar
+int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>% 
+    ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+        geom_point()
+
+int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+    geom_point() + 
+    geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+
+int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+    geom_violin() + 
+    geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
 ```
 
-### Normalizando por suma total 200-600
-
-Acumular (z) - Normalizar - Promediar (x)
+### Normalizacion: Porcion del espectro
 
 ```{r}
 ## acumular
 L <- L_Mechelle_new %>% map(~ .x %>% sumar_filas_por_grupos(n = 10))
   
 ## Normalizar
-izq = 267.62; der = 267.77
-int <- L %>% map_dfr(fun.int, izq = izq, der = der)
-factor <- L %>% map_dfr(fun.int, izq = 200, der = 600)
+int <- L %>% map_dfr(fun.int, izq = 267.64, der = 267.74)       ## Cromo
+factor <- L %>% map_dfr(fun.int, izq = 230, der = 320)    ## Fe
 int_norm <- int/factor
 
 ## Promediar
 int_norm <- cbind(Comp.data, int_norm)
-int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>% ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_boxplot()
+
+int_mean <- apply(int_norm %>% select(X1:X100), 1, promediar_grupos_aleatorios, n=10) %>% t() %>% data.frame()
+int_mean <- cbind(Comp.data, int_mean)
+
+## graficar
+int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>% 
+    ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+        geom_point()
+
+int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+    geom_point() + 
+    geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
+
+int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>% 
+  ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + 
+    geom_violin() + 
+    geom_hline(yintercept = int_norm$Cr, lty = 2, col = "gray")
 ```
 
-Normalizar - Acumular (z) - promediar (x)
+# PLS (+Lasso) - Exploracion
 
 ```{r}
-## Normalizar
-izq = 267.62; der = 267.77
-int <- L_Mechelle_new %>% map_dfr(fun.int, izq = izq, der = der)
-factor <- L_Mechelle_new %>% map_dfr(fun.int, izq = 200, der = 600)
-int_norm <- int/factor
+library(mixOmics)
 
-## acumular
-L <- L_Mechelle_new %>% map(~ .x %>% sumar_filas_por_grupos(n = 10))
-
-## Promediar
-int_norm <- cbind(Comp.data, int_norm)
-int_norm %>% pivot_longer(X1:X100, values_to = "Libs.Int") %>% ggplot(aes(x = Libs.Int, y = Cr, color = muestra)) + geom_boxplot()
 ```
-
-
-
