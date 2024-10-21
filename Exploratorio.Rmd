@@ -277,6 +277,25 @@ int_mean %>% pivot_longer(X1:X10, values_to = "Libs.Int") %>%
 
 # PLS (+Lasso) - Exploracion
 
+## Crear data X,Y
+
+```{r}
+## acumular
+L <- L_Mechelle_new %>% map(~ .x %>% sumar_filas_por_grupos(n = 10))
+  
+## Normalizar
+int <- L %>% map_dfr(fun.int, izq = 267.64, der = 267.74)       ## Cromo
+factor <- L %>% map_dfr(fun.int, izq = 268.40, der = 268.50)    ## Fe
+int_norm <- int/factor
+
+## Promediar
+int_norm <- cbind(Comp.data, int_norm)
+
+int_mean <- apply(int_norm %>% select(X1:X100), 1, promediar_grupos_aleatorios, n=10) %>% t() %>% data.frame()
+int_mean <- cbind(Comp.data, int_mean)
+
+```
+
 ```{r}
 library(mixOmics)
 
